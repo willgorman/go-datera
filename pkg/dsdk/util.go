@@ -30,8 +30,38 @@ var (
 	execCommand = exec.Command
 )
 
-func Log() *log.Entry {
-	return DecorateRuntimeContext(log.WithFields(log.Fields{}))
+type Logger interface {
+	Debug(...interface{})
+	Info(...interface{})
+	Warn(...interface{})
+	Error(...interface{})
+	Fatal(...interface{})
+
+	Debugf(string, ...interface{})
+	Infof(string, ...interface{})
+	Warnf(string, ...interface{})
+	Errorf(string, ...interface{})
+	Fatalf(string, ...interface{})
+
+	With(string, string) Logger
+}
+
+type baseLogger struct {
+	*log.Entry
+}
+
+// With returns new logger with custom field
+func (l *baseLogger) With(key, value string) Logger {
+	return &baseLogger{l.WithField(key, value)}
+}
+
+var (
+	Log = defaultLog
+)
+
+func defaultLog() Logger {
+	e := DecorateRuntimeContext(log.WithFields(log.Fields{}))
+	return &baseLogger{e}
 }
 
 // Args have the form "name=value"
