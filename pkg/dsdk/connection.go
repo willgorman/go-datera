@@ -349,19 +349,28 @@ func (c *ApiConnection) do(ctxt context.Context, method, url string, ro *greq.Re
 	}).Debugf("Datera SDK response received")
 
 	eresp, err := translateErrors(resp, err)
-	// if we have logged in successfully we may just need to refresh the apikey
-	if c.hasLoggedIn() && err == badStatus[PermissionDenied] {
-		// if this login fails then the credentials may no longer be valid and we shouldn't
-		// retry the login again
-		if apiresp, err2 := c.Login(ctxt); err2 != nil {
-			Log().Errorf("%s", err)
-			Log().Errorf("%s", err2)
-			return apiresp, err2
+
+	if err == badStatus[PermissionDenied] {
+		// if we have logged in successfully before we may just need to refresh the apikey
+		// and retry the original request
+		if c.hasLoggedIn() {
+			// if this login fails then the
+			c.Logout()
+			if apiresp, err2 := c.Login(ctxt); apiresp != nil || err2 != nil {
+				Log().Errorf("%s", err)
+				Log().Errorf("%s", err2)
+				return apiresp, err2
+			}
+			c.m.RLock()
+			ro.Headers["Auth-Token"] = c.apikey
+			c.m.RUnlock()
+			return c.do(ctxt, method, url, ro, rs, false, sensitive)
 		}
-		c.m.RLock()
-		ro.Headers["Auth-Token"] = c.apikey
-		c.m.RUnlock()
-		return c.do(ctxt, method, url, ro, rs, false, sensitive)
+
+		// but if we get here while logged out then then credentials may no longer be valid and we shouldn't
+		// retry the login again.  Just return the permission denied error
+		return eresp, nil
+
 	}
 	if retry && (err == badStatus[Retry503] || err == badStatus[ConnectionError]) {
 		return c.retry(ctxt, method, url, ro, rs, sensitive)

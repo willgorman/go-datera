@@ -317,6 +317,29 @@ func TestRetryScenarios(t *testing.T) {
 			},
 		},
 		{
+			desc: "does not retry after a 401 during a re-login",
+			setup: func() {
+				gock.New("http://127.0.0.1:7717").
+					Put("/v1/login").
+					Reply(200).
+					JSON(&dsdk.ApiLogin{Key: "thekey"})
+
+				gock.New("http://127.0.0.1:7717").
+					Get("/v1/system").
+					Reply(dsdk.PermissionDenied).
+					JSON(apiErr401)
+
+				gock.New("http://127.0.0.1:7717").
+					Put("/v1/login").
+					Persist().
+					Reply(dsdk.PermissionDenied).
+					JSON(apiErr401)
+			},
+			expected: expected{
+				ApiErr: apiErr401,
+			},
+		},
+		{
 			desc: "does not retry on a 400",
 			setup: func() {
 				gock.New("http://127.0.0.1:7717").
