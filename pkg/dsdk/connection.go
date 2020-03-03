@@ -354,7 +354,6 @@ func (c *ApiConnection) do(ctxt context.Context, method, url string, ro *greq.Re
 		// if we have logged in successfully before we may just need to refresh the apikey
 		// and retry the original request
 		if c.hasLoggedIn() {
-			// if this login fails then the
 			c.Logout()
 			if apiresp, err2 := c.Login(ctxt); apiresp != nil || err2 != nil {
 				Log().Errorf("%s", err)
