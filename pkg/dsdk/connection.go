@@ -463,6 +463,68 @@ func (c *ApiConnection) Get(ctxt context.Context, url string, ro *greq.RequestOp
 	return rs, apiresp, err
 }
 
+func (c *ApiConnection) GetListCh(ctxt context.Context, url string, ro *greq.RequestOptions) (chan *ApiListOuter, chan *ApiErrorResponse, chan error) {
+	aloCh := make(chan *ApiListOuter)
+	aerCh := make(chan *ApiErrorResponse)
+	errCh := make(chan error)
+
+	go func() {
+		defer func() {
+			close(aloCh)
+			close(aerCh)
+			close(errCh)
+		}()
+		rs := &ApiListOuter{}
+		apiresp, err := c.doWithAuth(ctxt, "GET", url, ro, rs)
+		// TODO:(_alastor_) handle pulling paged entries
+		aloCh <- rs
+		aerCh <- apiresp
+		errCh <- err
+		if apiresp != nil || err != nil {
+			return
+		}
+
+		if apiresp == nil && len(rs.Metadata) > 0 {
+			lp := ListParamsFromMap(ro.Params)
+			if lp.Limit != 0 || lp.Offset != 0 {
+				return
+			}
+			offset := 0
+			tcnt := 0
+			pageResultSize := len(rs.Data)
+			for ldata := len(rs.Data); ldata != tcnt; {
+				tcnt := int(rs.Metadata["total_count"].(float64))
+				offset += pageResultSize
+				if offset >= tcnt {
+					break
+				}
+				if ro.Params == nil {
+					ro.Params = ListParams{
+						Offset: offset,
+					}.ToMap()
+				} else {
+					// there are api endpoints that handle lists with more fields than
+					// ListParams (but still have offset/limit in common)
+					// just update offset directly here to preserve those extra fields
+					ro.Params["offset"] = strconv.FormatInt(int64(offset), 10)
+				}
+
+				apiresp, err := c.doWithAuth(ctxt, "GET", url, ro, rs)
+				pageResultSize = len(rs.Data)
+				if apiresp != nil || err != nil {
+					aloCh <- rs
+					aerCh <- apiresp
+					errCh <- err
+					return
+				}
+				aloCh <- rs
+			}
+		}
+	}()
+
+	return aloCh, aerCh, errCh
+}
+
 func (c *ApiConnection) GetList(ctxt context.Context, url string, ro *greq.RequestOptions) (*ApiListOuter, *ApiErrorResponse, error) {
 	rs := &ApiListOuter{}
 	apiresp, err := c.doWithAuth(ctxt, "GET", url, ro, rs)

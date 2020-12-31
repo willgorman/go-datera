@@ -96,6 +96,53 @@ type AppInstancesListRequest struct {
 	Params ListParams      `json:"params,omitempty"`
 }
 
+func (e *AppInstances) ListCh(ro *AppInstancesListRequest) (chan *AppInstance, chan *ApiErrorResponse, chan error) {
+	aiCh := make(chan *AppInstance)
+	errCh := make(chan error)
+
+	gro := &greq.RequestOptions{
+		JSON:   ro,
+		Params: ro.Params.ToMap()}
+	rsCh, apierrCh, subErrCh := GetConn(ro.Ctxt).GetListCh(ro.Ctxt, e.Path, gro)
+
+	go func() {
+		defer func() {
+			close(aiCh)
+			close(errCh)
+		}()
+		for {
+			select {
+			case rs, ok := <-rsCh:
+				if !ok {
+					rsCh = nil
+					break
+				}
+				for _, data := range rs.Data {
+					elem := &AppInstance{}
+					adata := data.(map[string]interface{})
+					if err := FillStruct(adata, elem); err != nil {
+						errCh <- err
+					}
+					RegisterAppInstanceEndpoints(elem)
+					aiCh <- elem
+				}
+			case err, ok := <-subErrCh:
+				if !ok {
+					subErrCh = nil
+				}
+				if err != nil {
+					errCh <- err //forward the error to our caller
+				}
+			}
+			if rsCh == nil && subErrCh == nil {
+				return
+			}
+		}
+	}()
+
+	return aiCh, apierrCh, errCh
+}
+
 func (e *AppInstances) List(ro *AppInstancesListRequest) ([]*AppInstance, *ApiErrorResponse, error) {
 	gro := &greq.RequestOptions{
 		JSON:   ro,
